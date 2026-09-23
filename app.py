@@ -12,6 +12,15 @@ from langchain_core.output_parsers import JsonOutputParser
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 
+# Test de diagnostic direct
+if st.sidebar.button("Tester la connexion Groq"):
+    try:
+        test_llm = ChatGroq(model="llama-3.3-70b-versatile", groq_api_key=groq_api_key)
+        res = test_llm.invoke("Dis 'Connexion réussie !'")
+        st.sidebar.success(res.content)
+    except Exception as e:
+        st.sidebar.error(f"Erreur Groq : {e}")
+        
 # ------------------------------------------------------------------
 # 1. Configuration de la page Streamlit
 # ------------------------------------------------------------------
@@ -79,7 +88,7 @@ class SQLState(TypedDict):
 # ------------------------------------------------------------------
 # 4. Agent LangGraph
 # ------------------------------------------------------------------
-@st.cache_resource
+
 def build_agent(api_key: str):
     # ✅ Remplace par un modèle officiel supporté par Groq (ex: Llama 3.3 70B) :
     llm = ChatGroq(
