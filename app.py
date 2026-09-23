@@ -40,7 +40,7 @@ if not groq_api_key:
 # ------------------------------------------------------------------
 if st.sidebar.button("Tester la connexion Groq"):
     try:
-        test_llm = ChatGroq(model="llama-3.1-8b-instant", groq_api_key=groq_api_key)
+        test_llm = ChatGroq(model="openai/gpt-oss-120b", groq_api_key=groq_api_key)
         res = test_llm.invoke("Dis 'Connexion réussie !'")
         st.sidebar.success(res.content)
     except Exception as e:
@@ -103,7 +103,7 @@ class SQLState(TypedDict):
 def build_agent(api_key: str):
     # ✅ Remplace par un modèle officiel supporté par Groq (ex: Llama 3.3 70B) :
     llm = ChatGroq(
-        model_name="llama-3.1-8b-instant",
+        model_name="openai/gpt-oss-120b",
         groq_api_key=api_key,
         temperature=0
     )
