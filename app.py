@@ -83,7 +83,7 @@ class SQLState(TypedDict):
 def build_agent(api_key: str):
     # ✅ Remplace par un modèle officiel supporté par Groq (ex: Llama 3.3 70B) :
     llm = ChatGroq(
-        model_name="llama-3.3-70b-versatile",
+        model_name="llama-3.1-8b-instant",
         groq_api_key=api_key,
         temperature=0
     )
