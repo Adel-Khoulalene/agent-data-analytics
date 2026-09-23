@@ -29,12 +29,31 @@ st.title("📊 Agent Autonome d'Analyse de Données")
 st.caption("LangGraph + Groq (Qwen 2.5 Coder) + DuckDB + Matplotlib (Zero Code Execution)")
 
 # Récupération de la clé API
-groq_api_key = os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
+# ------------------------------------------------------------------
+# 2. Récupération DE LA CLÉ (Doit être faite AVANT TOUT LE RESTE)
+# ------------------------------------------------------------------
+groq_api_key = None
+
+if "GROQ_API_KEY" in st.secrets:
+    groq_api_key = st.secrets["GROQ_API_KEY"]
+elif "GROQ_API_KEY" in os.environ:
+    groq_api_key = os.environ["GROQ_API_KEY"]
 
 if not groq_api_key:
-    st.error(" Clé API Groq manquante. Configurez `GROQ_API_KEY` dans vos secrets Streamlit.")
+    st.error("🔑 Clé API Groq introuvable. Allez dans Settings > Secrets et ajoutez : GROQ_API_KEY = \"gsk_...\"")
     st.stop()
 
+# ------------------------------------------------------------------
+# 3. Bouton de test (Placé APRÈS la définition de groq_api_key)
+# ------------------------------------------------------------------
+if st.sidebar.button("Tester la connexion Groq"):
+    try:
+        test_llm = ChatGroq(model="llama-3.3-70b-versatile", groq_api_key=groq_api_key)
+        res = test_llm.invoke("Dis 'Connexion réussie !'")
+        st.sidebar.success(res.content)
+    except Exception as e:
+        st.sidebar.error(f"Erreur Groq : {e}")
+        
 # ------------------------------------------------------------------
 # 2. Base de données DuckDB
 # ------------------------------------------------------------------
