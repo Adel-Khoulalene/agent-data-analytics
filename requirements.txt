@@ -1,0 +1,8 @@
+streamlit
+langgraph
+langchain-core
+langchain-groq
+duckdb
+pandas
+matplotlib
+pydantic

@@ -1,0 +1,19 @@
+# Environnements virtuels
+venv/
+.venv/
+env/
+
+# Cache Python
+__pycache__/
+*.py[cod]
+
+# Fichiers générés par l'application
+*.png
+*.csv
+
+# Configurations et secrets locaux
+.env
+.streamlit/secrets.toml
+
+# Système
+.DS_Store
