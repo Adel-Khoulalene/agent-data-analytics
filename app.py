@@ -75,12 +75,16 @@ if uploaded_file is not None:
         # 3. Supprimer d'éventuelles colonnes vides générées par le regex
         df_uploaded = df_uploaded.loc[:, ~df_uploaded.columns.str.contains('^Unnamed')]
         
-        # 4. Conversion automatique vers des types numériques (int/float)
-        df_uploaded = df_uploaded.apply(pd.to_numeric, errors='ignore')
+        # 4. Conversion automatique propre vers le type numérique quand c'est possible
+        for col in df_uploaded.columns:
+            converted = pd.to_numeric(df_uploaded[col], errors='coerce')
+            # Si la conversion réussit sans créer uniquement des NaN, on la conserve
+            if not converted.isna().all():
+                df_uploaded[col] = converted.fillna(df_uploaded[col])
         
         table_name = "dataset"
         
-        # 5. Injection dans DuckDB
+        # 5. Injection propre dans DuckDB
         conn.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM df_uploaded")
         
         # Inspection dynamique pour le prompt de l'agent
