@@ -12,17 +12,15 @@ from langchain_core.output_parsers import JsonOutputParser
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 
-        
 # ------------------------------------------------------------------
 # 1. Configuration de la page Streamlit
 # ------------------------------------------------------------------
 st.set_page_config(page_title="Agent Data Science", page_icon="📊", layout="wide")
-st.title("📊 Agent Autonome d'Analyse de Données")
-st.caption("LangGraph + Groq (Qwen 2.5 Coder) + DuckDB + Matplotlib (Zero Code Execution)")
+st.title("📊 Agent Autonome d'Analyse de Données Multi-CSV")
+st.caption("LangGraph + Groq (openai/gpt-oss-120b) + DuckDB (Support CSV dynamique)")
 
-# Récupération de la clé API
 # ------------------------------------------------------------------
-# 2. Récupération DE LA CLÉ (Doit être faite AVANT TOUT LE RESTE)
+# 2. Récupération de la clé API Groq
 # ------------------------------------------------------------------
 groq_api_key = None
 
@@ -32,26 +30,58 @@ elif "GROQ_API_KEY" in os.environ:
     groq_api_key = os.environ["GROQ_API_KEY"]
 
 if not groq_api_key:
-    st.error("🔑 Clé API Groq introuvable. Allez dans Settings > Secrets et ajoutez : GROQ_API_KEY = \"gsk_...\"")
+    st.error("🔑 Clé API Groq introuvable. Ajoutez `GROQ_API_KEY` dans vos Secrets Streamlit.")
     st.stop()
 
 # ------------------------------------------------------------------
-# 3. Bouton de test (Placé APRÈS la définition de groq_api_key)
+# 3. Sidebar : Test de connexion & File Uploader CSV
 # ------------------------------------------------------------------
-if st.sidebar.button("Tester la connexion Groq"):
-    try:
-        test_llm = ChatGroq(model="openai/gpt-oss-120b", groq_api_key=groq_api_key)
-        res = test_llm.invoke("Dis 'Connexion réussie !'")
-        st.sidebar.success(res.content)
-    except Exception as e:
-        st.sidebar.error(f"Erreur Groq : {e}")
-        
+with st.sidebar:
+    st.header("⚙️ Configuration & Données")
+    
+    if st.button("Tester la connexion Groq", key="btn_test_groq"):
+        try:
+            test_llm = ChatGroq(model="openai/gpt-oss-120b", groq_api_key=groq_api_key)
+            res = test_llm.invoke("Dis 'Connexion réussie !'")
+            st.success(res.content)
+        except Exception as e:
+            st.error(f"Erreur Groq : {e}")
+
+    st.markdown("---")
+    st.subheader("📁 Importer des données")
+    uploaded_file = st.file_uploader("Téléversez un fichier CSV", type=["csv"])
+
 # ------------------------------------------------------------------
-# 2. Base de données DuckDB
+# 4. Gestion de la Base de Données DuckDB & Schéma Dynamique
 # ------------------------------------------------------------------
 @st.cache_resource
-def init_db():
-    conn = duckdb.connect(database=':memory:', read_only=False)
+def get_db_connection():
+    return duckdb.connect(database=':memory:', read_only=False)
+
+conn = get_db_connection()
+
+if uploaded_file is not None:
+    try:
+        # Lecture du CSV téléversé
+        df_uploaded = pd.read_csv(uploaded_file)
+        # Nettoyage du nom de la table (suppression des caractères spéciaux)
+        table_name = "dataset"
+        
+        # Injection automatique du DataFrame dans DuckDB
+        conn.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM df_uploaded")
+        
+        # Inspection dynamique des colonnes pour le LLM
+        schema_info = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+        cols_str = "\n".join([f"- {col[1]} ({col[2]})" for col in schema_info])
+        
+        db_schema = f"Table: {table_name}\nColonnes:\n{cols_str}"
+        st.sidebar.success(f"Fichier `{uploaded_file.name}` chargé ({len(df_uploaded)} lignes) !")
+        st.sidebar.dataframe(df_uploaded.head(3), use_container_width=True)
+    except Exception as e:
+        st.sidebar.error(f"Erreur lors du chargement du CSV : {e}")
+        st.stop()
+else:
+    # Table d'exemple par défaut
     conn.execute("""
         CREATE TABLE IF NOT EXISTS clients (
             id INT PRIMARY KEY,
@@ -66,20 +96,17 @@ def init_db():
         (4, 'Diana', 3100.00),
         (5, 'Aurel', 450.75);
     """)
-    return conn
-
-conn = init_db()
-
-DB_SCHEMA = """
+    db_schema = """
 Table: clients
 Colonnes:
 - id (INTEGER)
 - nom (VARCHAR)
 - total_depense (DOUBLE)
 """
+    st.sidebar.info("💡 Aucun fichier fourni : utilisation de la table par défaut `clients`.")
 
 # ------------------------------------------------------------------
-# 3. Structure des données et État LangGraph
+# 5. Structure Pydantic & État LangGraph
 # ------------------------------------------------------------------
 class ChartConfig(BaseModel):
     chart_type: Literal["bar", "line", "scatter"]
@@ -97,13 +124,11 @@ class SQLState(TypedDict):
     chart_path: str
 
 # ------------------------------------------------------------------
-# 4. Agent LangGraph
+# 6. Construction de l'Agent Autonome
 # ------------------------------------------------------------------
-
-def build_agent(api_key: str):
-    # ✅ Remplace par un modèle officiel supporté par Groq (ex: Llama 3.3 70B) :
+def build_agent(api_key: str, schema_context: str):
     llm = ChatGroq(
-        model_name="openai/gpt-oss-120b",
+        model="openai/gpt-oss-120b",
         groq_api_key=api_key,
         temperature=0
     )
@@ -111,11 +136,11 @@ def build_agent(api_key: str):
     def generate_sql(state: SQLState):
         retry_count = state.get("retry_count", 0)
         error = state.get("error", "")
-        prompt = f"Tu es un expert SQL DuckDB.\nSchéma:\n{DB_SCHEMA}\nGénère UNIQUEMENT la requête SQL sans markdown."
+        prompt = f"Tu es un expert SQL DuckDB.\nSchéma disponible :\n{schema_context}\nGénère UNIQUEMENT la requête SQL adaptée sans balises markdown."
         if error:
-            prompt += f"\nErreur précédente : '{error}'. Corrige-la."
+            prompt += f"\nL'exécution précédente a échoué avec l'erreur : '{error}'. Corrige la requête."
         else:
-            prompt += f"\nDemande : {state['messages'][-1].content}"
+            prompt += f"\nDemande de l'utilisateur : {state['messages'][-1].content}"
             
         response = llm.invoke(prompt)
         clean_sql = response.content.strip().replace("```sql", "").replace("```", "").strip()
@@ -133,9 +158,10 @@ def build_agent(api_key: str):
         sql_result = state.get("sql_result", "")
         user_query = state['messages'][-1].content
         parser = JsonOutputParser(pydantic_object=ChartConfig)
-        prompt = f"Données DuckDB : {sql_result}\nDemande : {user_query}\nExtrais la config JSON:\n{parser.get_format_instructions()}"
+        prompt = f"Résultat SQL : {sql_result}\nDemande utilisateur : {user_query}\nFormate la configuration de visualisation au format JSON selon ces instructions :\n{parser.get_format_instructions()}"
         
         config_dict = {}
+        chart_path = ""
         try:
             response = llm.invoke(prompt)
             config_dict = parser.parse(response.content)
@@ -192,10 +218,11 @@ def build_agent(api_key: str):
 
     return builder.compile()
 
-agent = build_agent(groq_api_key)
+# Instanciation dynamique avec le schéma courant
+agent = build_agent(groq_api_key, db_schema)
 
 # ------------------------------------------------------------------
-# 5. Interface Chat Streamlit
+# 7. Interface Chat Streamlit
 # ------------------------------------------------------------------
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -208,7 +235,7 @@ for msg in st.session_state.messages:
         if "chart_path" in msg and msg["chart_path"]:
             st.image(msg["chart_path"])
 
-user_input = st.chat_input("Ex: Affiche le total des dépenses des clients sous forme de graphique...")
+user_input = st.chat_input("Posez une question sur vos données (ex: Donnes-moi la répartition par catégorie)...")
 
 if user_input:
     st.session_state.messages.append({"role": "user", "content": user_input})
@@ -216,7 +243,7 @@ if user_input:
         st.write(user_input)
 
     with st.chat_message("assistant"):
-        with st.spinner("Analyse et génération en cours..."):
+        with st.spinner("Analyse et génération en cours via DuckDB + Groq..."):
             initial_state = {"messages": [("user", user_input)], "retry_count": 0, "error": ""}
             final_state = agent.invoke(initial_state)
 
@@ -226,24 +253,24 @@ if user_input:
 
             st.write("Résultat de l'analyse :")
             if sql_query:
-                st.markdown("**Requête SQL exécutée :**")
+                st.markdown("**Requête SQL générée :**")
                 st.code(sql_query, language="sql")
             
             if sql_result:
-                st.markdown("**Données retournées :**")
+                st.markdown("**Données extraites :**")
                 try:
-                    df = pd.DataFrame(eval(sql_result))
-                    st.dataframe(df, use_container_width=True)
+                    df_res = pd.DataFrame(eval(sql_result))
+                    st.dataframe(df_res, use_container_width=True)
                 except Exception:
                     st.write(sql_result)
 
             if chart_path:
-                st.markdown("**Visualisation :**")
+                st.markdown("**Graphique généré :**")
                 st.image(chart_path)
 
             st.session_state.messages.append({
                 "role": "assistant",
-                "content": "Analyse complétée.",
+                "content": "Analyse terminée avec succès.",
                 "sql": sql_query,
                 "chart_path": chart_path
             })
