@@ -75,46 +75,60 @@ if uploaded_file is not None:
         # 3. Supprimer d'éventuelles colonnes vides générées par le regex
         df_uploaded = df_uploaded.loc[:, ~df_uploaded.columns.str.contains('^Unnamed')]
         
-       # 4. Conversion automatique des types (Numérique, Dates YYYYMMDD et Dates mixtes)
-        for col in df_uploaded.columns:
-            # A. Détection spécifique des dates compactes au format YYYYMMDD (ex: 19950501)
-            col_str = df_uploaded[col].astype(str).str.strip()
-            if col_str.str.match(r'^(19|20)\d{6}$').all():
-                try:
-                    df_uploaded[col] = pd.to_datetime(col_str, format='%Y%m%d', errors='coerce')
-                    continue
-                except Exception:
-                    pass
+    # 4. Conversion automatique des types (Dates YYYYMMDD, Dates mixtes et Numérique)
+    for col in df_uploaded.columns:
+        # Nettoyage initial : suppression des espaces aux extrémités et des guillemets
+        col_str = df_uploaded[col].astype(str).str.strip().str.replace('"', "", regex=False)
+        non_empty = col_str[~col_str.isin(["NA", "nan", "NaN", "<NA>", "", "None"])]
 
-            # B. Tentative de conversion en numérique standard
-            converted_num = pd.to_numeric(df_uploaded[col], errors='coerce')
-            if not converted_num.isna().all():
-                df_uploaded[col] = converted_num.fillna(df_uploaded[col])
-                continue
-            
-            # C. Tentative de conversion des formats de dates standards/mixtes (ex: 24/09/2026, 1995-05-01)
+        # A. Détection spécifique des dates compactes au format YYYYMMDD (ex: 19950501)
+        if len(non_empty) > 0 and non_empty.str.match(r"^(19|20)\d{6}$").all():
             try:
-                converted_date = pd.to_datetime(df_uploaded[col], format='mixed', errors='coerce', dayfirst=True)
-                if converted_date.notna().sum() > 0.5 * len(df_uploaded):
-                    df_uploaded[col] = converted_date
+                df_uploaded[col] = pd.to_datetime(
+                    col_str, format="%Y%m%d", errors="coerce"
+                )
+                continue
             except Exception:
                 pass
-        
-        table_name = "dataset"
-        
-        # 5. Injection propre dans DuckDB
-        conn.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM df_uploaded")
-        
-        # Inspection dynamique pour le prompt de l'agent
-        schema_info = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
-        cols_str = "\n".join([f"- {col[1]} ({col[2]})" for col in schema_info])
-        
-        db_schema = f"Table: {table_name}\nColonnes:\n{cols_str}"
-        st.sidebar.success(f"Fichier `{uploaded_file.name}` chargé ({len(df_uploaded)} lignes) !")
-        st.sidebar.dataframe(df_uploaded.head(3), use_container_width=True)
-    except Exception as e:
-        st.sidebar.error(f"Erreur lors du chargement du fichier : {e}")
-        st.stop()
+
+        # B. Tentative de conversion des formats de dates standards/mixtes (ex: 24/09/2026, 1995-05-01)
+        try:
+            converted_date = pd.to_datetime(
+                df_uploaded[col], format="mixed", errors="coerce", dayfirst=True
+            )
+            if (
+                len(df_uploaded) > 0
+                and (converted_date.notna().sum() / len(df_uploaded)) > 0.5
+            ):
+                df_uploaded[col] = converted_date
+                continue
+        except Exception:
+            pass
+
+        # C. Tentative de conversion en numérique standard (support des décimales avec virgule)
+        converted_num = pd.to_numeric(
+            col_str.str.replace(",", ".", regex=False), errors="coerce"
+        )
+        if converted_num.notna().sum() > 0 and not pd.api.types.is_datetime64_any_dtype(
+            df_uploaded[col]
+        ):
+            df_uploaded[col] = converted_num
+            
+            table_name = "dataset"
+            
+            # 5. Injection propre dans DuckDB
+            conn.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM df_uploaded")
+            
+            # Inspection dynamique pour le prompt de l'agent
+            schema_info = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+            cols_str = "\n".join([f"- {col[1]} ({col[2]})" for col in schema_info])
+            
+            db_schema = f"Table: {table_name}\nColonnes:\n{cols_str}"
+            st.sidebar.success(f"Fichier `{uploaded_file.name}` chargé ({len(df_uploaded)} lignes) !")
+            st.sidebar.dataframe(df_uploaded.head(3), use_container_width=True)
+        except Exception as e:
+            st.sidebar.error(f"Erreur lors du chargement du fichier : {e}")
+            st.stop()
 else:
     # Table d'exemple par défaut
     conn.execute("""
