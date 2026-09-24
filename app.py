@@ -75,35 +75,73 @@ if uploaded_file is not None:
         # 3. Supprimer d'éventuelles colonnes vides générées par le regex
         df_uploaded = df_uploaded.loc[:, ~df_uploaded.columns.str.contains('^Unnamed')]
         
-    # 4. Conversion automatique des types (Dates YYYYMMDD, Dates mixtes et Numérique)
+    # 4. Conversion automatique des types (dates + numérique)
     for col in df_uploaded.columns:
-        # Nettoyage initial : suppression des espaces aux extrémités et des guillemets
-        col_str = df_uploaded[col].astype(str).str.strip().str.replace('"', "", regex=False)
-        non_empty = col_str[~col_str.isin(["NA", "nan", "NaN", "<NA>", "", "None"])]
+        # Nettoyage initial
+        col_str = (
+            df_uploaded[col]
+            .astype(str)
+            .str.strip()
+            .str.replace('"', "", regex=False)
+            .str.replace("'", "", regex=False)
+        )
 
-        # A. Détection spécifique des dates compactes au format YYYYMMDD (ex: 19950501)
-        if len(non_empty) > 0 and non_empty.str.match(r"^(19|20)\d{6}$").all():
-            try:
-                df_uploaded[col] = pd.to_datetime(
-                    col_str, format="%Y%m%d", errors="coerce"
-                )
+        non_empty = col_str[
+            ~col_str.isin(["NA", "nan", "NaN", "<NA>", "", "None"])
+        ]
+
+        # A. Détection des dates compactes YYYYMMDD
+        # Exemple : 19950501 ou "19950501"
+        if len(non_empty) > 0 and non_empty.str.fullmatch(r"(19|20)\d{6}").all():
+            converted_date = pd.to_datetime(
+                col_str,
+                format="%Y%m%d",
+                errors="coerce"
+            )
+
+            if converted_date.notna().sum() > 0:
+                df_uploaded[col] = converted_date
                 continue
-            except Exception:
-                pass
 
-        # B. Tentative de conversion des formats de dates standards/mixtes (ex: 24/09/2026, 1995-05-01)
+        # B. Détection des dates classiques et mélangées
+        # Exemples :
+        # 24/09/2026
+        # 24-09-2026
+        # 2026-09-24
+        # 24.09.2026
+        # 09/24/2026
+        # 2026/09/24
         try:
             converted_date = pd.to_datetime(
-                df_uploaded[col], format="mixed", errors="coerce", dayfirst=True
+                col_str,
+                format="mixed",
+                errors="coerce",
+                dayfirst=True
             )
+
+            # On considère la colonne comme date si au moins 50 %
+            # des valeurs non vides sont reconnues
             if (
-                len(df_uploaded) > 0
-                and (converted_date.notna().sum() / len(df_uploaded)) > 0.5
+                len(non_empty) > 0
+                and (converted_date.notna().sum() / len(non_empty)) >= 0.5
             ):
                 df_uploaded[col] = converted_date
                 continue
+
         except Exception:
             pass
+
+        # C. Conversion numérique
+        converted_num = pd.to_numeric(
+            col_str.str.replace(",", ".", regex=False),
+            errors="coerce"
+        )
+
+        if (
+            converted_num.notna().sum() > 0
+            and not pd.api.types.is_datetime64_any_dtype(df_uploaded[col])
+        ):
+            df_uploaded[col] = converted_num
 
         # C. Tentative de conversion en numérique standard (support des décimales avec virgule)
         converted_num = pd.to_numeric(
