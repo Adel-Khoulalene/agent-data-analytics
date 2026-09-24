@@ -287,32 +287,67 @@ def build_agent(api_key: str, schema_context: str):
             raw_data = eval(sql_result)
             df = pd.DataFrame(raw_data)
 
-            # Renommer uniquement les deux colonnes utilisées par le graphique
+            # Vérification des colonnes demandées
             if config.x_column in df.columns and config.y_column in df.columns:
                 df = df[[config.x_column, config.y_column]].copy()
             else:
-                # Pour les résultats SQL sans noms de colonnes exploitables
                 if len(df.columns) >= 2:
                     df = df.iloc[:, :2].copy()
                     df.columns = [config.x_column, config.y_column]
-            
-            plt.clf()
-            fig, ax = plt.subplots(figsize=(6, 3.5))
+                else:
+                    raise ValueError("Le résultat SQL ne contient pas assez de colonnes pour générer le graphique.")
+
+            # Nettoyage de l'axe X
+            df[config.x_column] = df[config.x_column].astype(str)
+
+            # Conversion explicite de l'axe Y en numérique
+            df[config.y_column] = pd.to_numeric(
+                df[config.y_column],
+                errors="coerce"
+            )
+
+            # Suppression des lignes invalides
+            df = df.dropna(subset=[config.y_column])
+
+            if df.empty:
+                raise ValueError(
+                    f"Aucune valeur numérique exploitable dans la colonne '{config.y_column}'."
+                )
+
+            # Génération du graphique
+            plt.close("all")
+
+            fig, ax = plt.subplots(figsize=(10, 5))
+
             if config.chart_type == "bar":
-                ax.bar(df[config.x_column].astype(str), df[config.y_column], color="#1f77b4")
+                ax.bar(
+                    df[config.x_column],
+                    df[config.y_column]
+                )
+
             elif config.chart_type == "line":
-                ax.plot(df[config.x_column].astype(str), df[config.y_column], marker='o', color="#ff7f0e")
+                ax.plot(
+                    df[config.x_column],
+                    df[config.y_column],
+                    marker="o"
+                )
+
             elif config.chart_type == "scatter":
-                ax.scatter(df[config.x_column].astype(str), df[config.y_column], color="#2ca02c")
-                
-            ax.set_title(config.title)
-            ax.set_xlabel(config.x_column)
-            ax.set_ylabel(config.y_column)
+                ax.scatter(
+                    df[config.x_column],
+                    df[config.y_column]
+                )
+
+            ax.set_title(str(config.title))
+            ax.set_xlabel(str(config.x_column))
+            ax.set_ylabel(str(config.y_column))
+
+            plt.xticks(rotation=45)
             plt.tight_layout()
-            
+
             chart_path = "chart.png"
-            plt.savefig(chart_path)
-            plt.close()
+            fig.savefig(chart_path, dpi=150, bbox_inches="tight")
+            plt.close(fig)
         except Exception as e:
             st.error(f"Erreur lors de la génération du graphique : {e}")
             chart_path = ""
