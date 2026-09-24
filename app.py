@@ -50,7 +50,7 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("📁 Importer des données")
     uploaded_file = st.file_uploader(
-    "Téléversezzz un fichier (CSV, TXT, DATA)", 
+    "Téléversez un fichier (CSV, TXT, DATA)", 
     type=["csv", "txt", "data", "log"]
     )
 
