@@ -62,15 +62,22 @@ conn = get_db_connection()
 
 if uploaded_file is not None:
     try:
-        # Lecture du CSV téléversé
-        df_uploaded = pd.read_csv(uploaded_file)
-        # Nettoyage du nom de la table (suppression des caractères spéciaux)
+        # 1. Parsing universel : gère espaces, virgules et points-virgules
+        df_uploaded = pd.read_csv(uploaded_file, sep=r'[\s,;]+', engine='python')
+        
+        # 2. Nettoyage des guillemets superflus dans les valeurs et les noms de colonnes
+        df_uploaded = df_uploaded.apply(lambda col: col.astype(str).str.replace('"', '').str.replace("'", ""))
+        df_uploaded.columns = [col.replace('"', '').replace("'", "").strip() for col in df_uploaded.columns]
+        
+        # 3. Conversion automatique des colonnes vers leurs types numériques (float/int)
+        df_uploaded = df_uploaded.apply(pd.to_numeric, errors='ignore')
+        
         table_name = "dataset"
         
-        # Injection automatique du DataFrame dans DuckDB
+        # 4. Injection propre dans DuckDB
         conn.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM df_uploaded")
         
-        # Inspection dynamique des colonnes pour le LLM
+        # Inspection dynamique pour l'agent LLM
         schema_info = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
         cols_str = "\n".join([f"- {col[1]} ({col[2]})" for col in schema_info])
         
