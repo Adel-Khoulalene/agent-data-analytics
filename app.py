@@ -75,12 +75,30 @@ if uploaded_file is not None:
         # 3. Supprimer d'éventuelles colonnes vides générées par le regex
         df_uploaded = df_uploaded.loc[:, ~df_uploaded.columns.str.contains('^Unnamed')]
         
-        # 4. Conversion automatique propre vers le type numérique quand c'est possible
+       # 4. Conversion automatique des types (Numérique, Dates YYYYMMDD et Dates mixtes)
         for col in df_uploaded.columns:
-            converted = pd.to_numeric(df_uploaded[col], errors='coerce')
-            # Si la conversion réussit sans créer uniquement des NaN, on la conserve
-            if not converted.isna().all():
-                df_uploaded[col] = converted.fillna(df_uploaded[col])
+            # A. Détection spécifique des dates compactes au format YYYYMMDD (ex: 19950501)
+            col_str = df_uploaded[col].astype(str).str.strip()
+            if col_str.str.match(r'^(19|20)\d{6}$').all():
+                try:
+                    df_uploaded[col] = pd.to_datetime(col_str, format='%Y%m%d', errors='coerce')
+                    continue
+                except Exception:
+                    pass
+
+            # B. Tentative de conversion en numérique standard
+            converted_num = pd.to_numeric(df_uploaded[col], errors='coerce')
+            if not converted_num.isna().all():
+                df_uploaded[col] = converted_num.fillna(df_uploaded[col])
+                continue
+            
+            # C. Tentative de conversion des formats de dates standards/mixtes (ex: 24/09/2026, 1995-05-01)
+            try:
+                converted_date = pd.to_datetime(df_uploaded[col], format='mixed', errors='coerce', dayfirst=True)
+                if converted_date.notna().sum() > 0.5 * len(df_uploaded):
+                    df_uploaded[col] = converted_date
+            except Exception:
+                pass
         
         table_name = "dataset"
         
