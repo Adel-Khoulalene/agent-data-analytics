@@ -65,112 +65,131 @@ conn = get_db_connection()
 
 if uploaded_file is not None:
     try:
-        # 1. Parsing universel (CSV / TXT) avec support de /s, espaces, virgules, points-virgules
+        # 1. Lecture du fichier avec détection des séparateurs
         df_uploaded = pd.read_csv(
-        uploaded_file,
-        sep=r'[;,|\t]+',
-        engine='python'
-        )
-        
-        # 2. Nettoyage des guillemets et espaces résiduels
-        df_uploaded = df_uploaded.apply(lambda col: col.astype(str).str.replace('"', '').str.replace("'", "").str.strip())
-        df_uploaded.columns = [col.replace('"', '').replace("'", "").strip() for col in df_uploaded.columns]
-        
-        # 3. Supprimer d'éventuelles colonnes vides générées par le regex
-        df_uploaded = df_uploaded.loc[:, ~df_uploaded.columns.str.contains('^Unnamed')]
-        
-    # 4. Conversion automatique des types (dates + numérique)
-    for col in df_uploaded.columns:
-        # Nettoyage initial
-        col_str = (
-            df_uploaded[col]
-            .astype(str)
-            .str.strip()
-            .str.replace('"', "", regex=False)
-            .str.replace("'", "", regex=False)
+            uploaded_file,
+            sep=r'[;,|\t]+',
+            engine='python'
         )
 
-        non_empty = col_str[
-            ~col_str.isin(["NA", "nan", "NaN", "<NA>", "", "None"])
+        # 2. Nettoyage des guillemets et espaces
+        df_uploaded = df_uploaded.apply(
+            lambda col: col.astype(str)
+            .str.replace('"', '', regex=False)
+            .str.replace("'", "", regex=False)
+            .str.strip()
+        )
+
+        df_uploaded.columns = [
+            col.replace('"', '').replace("'", "").strip()
+            for col in df_uploaded.columns
         ]
 
-        # A. Détection des dates compactes YYYYMMDD
-        # Exemple : 19950501 ou "19950501"
-        if len(non_empty) > 0 and non_empty.str.fullmatch(r"(19|20)\d{6}").all():
-            converted_date = pd.to_datetime(
-                col_str,
-                format="%Y%m%d",
+        # 3. Suppression des colonnes vides
+        df_uploaded = df_uploaded.loc[
+            :, ~df_uploaded.columns.str.contains('^Unnamed')
+        ]
+
+        # 4. Conversion automatique des types
+        for col in df_uploaded.columns:
+
+            col_str = (
+                df_uploaded[col]
+                .astype(str)
+                .str.strip()
+                .str.replace('"', '', regex=False)
+                .str.replace("'", "", regex=False)
+            )
+
+            non_empty = col_str[
+                ~col_str.isin(
+                    ["NA", "nan", "NaN", "<NA>", "", "None"]
+                )
+            ]
+
+            # A. Dates YYYYMMDD
+            if (
+                len(non_empty) > 0
+                and non_empty.str.fullmatch(r"(19|20)\d{6}").all()
+            ):
+                converted_date = pd.to_datetime(
+                    col_str,
+                    format="%Y%m%d",
+                    errors="coerce"
+                )
+
+                if converted_date.notna().sum() > 0:
+                    df_uploaded[col] = converted_date
+                    continue
+
+            # B. Dates classiques
+            try:
+                converted_date = pd.to_datetime(
+                    col_str,
+                    format="mixed",
+                    errors="coerce",
+                    dayfirst=True
+                )
+
+                if (
+                    len(non_empty) > 0
+                    and converted_date.notna().sum() / len(non_empty) >= 0.5
+                ):
+                    df_uploaded[col] = converted_date
+                    continue
+
+            except Exception:
+                pass
+
+            # C. Numérique
+            converted_num = pd.to_numeric(
+                col_str.str.replace(",", ".", regex=False),
                 errors="coerce"
             )
 
-            if converted_date.notna().sum() > 0:
-                df_uploaded[col] = converted_date
-                continue
-
-        # B. Détection des dates classiques et mélangées
-        # Exemples :
-        # 24/09/2026
-        # 24-09-2026
-        # 2026-09-24
-        # 24.09.2026
-        # 09/24/2026
-        # 2026/09/24
-        try:
-            converted_date = pd.to_datetime(
-                col_str,
-                format="mixed",
-                errors="coerce",
-                dayfirst=True
-            )
-
-            # On considère la colonne comme date si au moins 50 %
-            # des valeurs non vides sont reconnues
             if (
-                len(non_empty) > 0
-                and (converted_date.notna().sum() / len(non_empty)) >= 0.5
+                converted_num.notna().sum() > 0
+                and not pd.api.types.is_datetime64_any_dtype(
+                    df_uploaded[col]
+                )
             ):
-                df_uploaded[col] = converted_date
-                continue
+                df_uploaded[col] = converted_num
 
-        except Exception:
-            pass
+        # 5. Injection dans DuckDB
+        table_name = "dataset"
 
-        # C. Conversion numérique
-        converted_num = pd.to_numeric(
-            col_str.str.replace(",", ".", regex=False),
-            errors="coerce"
+        conn.execute(
+            f"CREATE OR REPLACE TABLE {table_name} AS "
+            "SELECT * FROM df_uploaded"
         )
 
-        if (
-            converted_num.notna().sum() > 0
-            and not pd.api.types.is_datetime64_any_dtype(df_uploaded[col])
-        ):
-            df_uploaded[col] = converted_num
+        # 6. Inspection dynamique du schéma
+        schema_info = conn.execute(
+            f"PRAGMA table_info({table_name})"
+        ).fetchall()
 
-        # C. Tentative de conversion en numérique standard (support des décimales avec virgule)
-        converted_num = pd.to_numeric(
-            col_str.str.replace(",", ".", regex=False), errors="coerce"
+        cols_str = "\n".join(
+            [f"- {col[1]} ({col[2]})" for col in schema_info]
         )
-        if converted_num.notna().sum() > 0 and not pd.api.types.is_datetime64_any_dtype(
-            df_uploaded[col]
-        ):
-            df_uploaded[col] = converted_num
-            
-            table_name = "dataset"
-            
-            # 5. Injection propre dans DuckDB
-            conn.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM df_uploaded")
-            
-            # Inspection dynamique pour le prompt de l'agent
-            schema_info = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
-            cols_str = "\n".join([f"- {col[1]} ({col[2]})" for col in schema_info])
-            
-            db_schema = f"Table: {table_name}\nColonnes:\n{cols_str}"
-            st.sidebar.success(f"Fichier `{uploaded_file.name}` chargé ({len(df_uploaded)} lignes) !")
-            st.sidebar.dataframe(df_uploaded.head(3), use_container_width=True)
-        except Exception as e:
-            st.sidebar.error(f"Erreur lors du chargement du fichier : {e}")
-            st.stop()
+
+        db_schema = f"Table: {table_name}\nColonnes:\n{cols_str}"
+
+        st.sidebar.success(
+            f"Fichier `{uploaded_file.name}` chargé "
+            f"({len(df_uploaded)} lignes) !"
+        )
+
+        st.sidebar.dataframe(
+            df_uploaded.head(3),
+            use_container_width=True
+        )
+
+    except Exception as e:
+        st.sidebar.error(
+            f"Erreur lors du chargement du fichier : {e}"
+        )
+        st.stop()
+
 else:
     # Table d'exemple par défaut
     conn.execute("""
@@ -180,21 +199,26 @@ else:
             total_depense DOUBLE
         );
         DELETE FROM clients;
-        INSERT INTO clients VALUES 
+        INSERT INTO clients VALUES
         (1, 'Alice', 1200.50),
         (2, 'Bob', 850.00),
         (3, 'Charlie', 2300.10),
         (4, 'Diana', 3100.00),
         (5, 'Aurel', 450.75);
     """)
+
     db_schema = """
-Table: clients
-Colonnes:
-- id (INTEGER)
-- nom (VARCHAR)
-- total_depense (DOUBLE)
-"""
-    st.sidebar.info("💡 Aucun fichier fourni : utilisation de la table par défaut `clients`.")
+    Table: clients
+    Colonnes:
+    - id (INTEGER)
+    - nom (VARCHAR)
+    - total_depense (DOUBLE)
+    """
+
+    st.sidebar.info(
+        "💡 Aucun fichier fourni : utilisation de la table "
+        "par défaut `clients`."
+    )
 
 # ------------------------------------------------------------------
 # 5. Structure Pydantic & État LangGraph
