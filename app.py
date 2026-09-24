@@ -66,7 +66,11 @@ conn = get_db_connection()
 if uploaded_file is not None:
     try:
         # 1. Parsing universel (CSV / TXT) avec support de /s, espaces, virgules, points-virgules
-        df_uploaded = pd.read_csv(uploaded_file, sep=r'(/s|[\s,;])+', engine='python')
+        df_uploaded = pd.read_csv(
+        uploaded_file,
+        sep=r'[;,|\t]+',
+        engine='python'
+        )
         
         # 2. Nettoyage des guillemets et espaces résiduels
         df_uploaded = df_uploaded.apply(lambda col: col.astype(str).str.replace('"', '').str.replace("'", "").str.strip())
