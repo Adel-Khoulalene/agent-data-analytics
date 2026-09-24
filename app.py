@@ -284,8 +284,15 @@ def build_agent(api_key: str, schema_context: str):
             
             raw_data = eval(sql_result)
             df = pd.DataFrame(raw_data)
-            if len(df.columns) >= 2:
-                df.columns = [config.x_column, config.y_column]
+
+            # Renommer uniquement les deux colonnes utilisées par le graphique
+            if config.x_column in df.columns and config.y_column in df.columns:
+                df = df[[config.x_column, config.y_column]].copy()
+            else:
+                # Pour les résultats SQL sans noms de colonnes exploitables
+                if len(df.columns) >= 2:
+                    df = df.iloc[:, :2].copy()
+                    df.columns = [config.x_column, config.y_column]
             
             plt.clf()
             fig, ax = plt.subplots(figsize=(6, 3.5))
@@ -304,7 +311,8 @@ def build_agent(api_key: str, schema_context: str):
             chart_path = "chart.png"
             plt.savefig(chart_path)
             plt.close()
-        except Exception:
+        except Exception as e:
+            st.error(f"Erreur lors de la génération du graphique : {e}")
             chart_path = ""
             
         return {"chart_config": str(config_dict), "chart_path": chart_path}
