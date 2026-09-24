@@ -49,7 +49,10 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("📁 Importer des données")
-    uploaded_file = st.file_uploader("Téléversez un fichier CSV", type=["csv"])
+    uploaded_file = st.file_uploader(
+    "Téléversez un fichier (CSV, TXT, DATA)", 
+    type=["csv", "txt", "data", "log"]
+    )
 
 # ------------------------------------------------------------------
 # 4. Gestion de la Base de Données DuckDB & Schéma Dynamique
@@ -62,22 +65,25 @@ conn = get_db_connection()
 
 if uploaded_file is not None:
     try:
-        # 1. Parsing universel : gère espaces, virgules et points-virgules
-        df_uploaded = pd.read_csv(uploaded_file, sep=r'[\s,;]+', engine='python')
+        # 1. Parsing universel (CSV / TXT) avec support de /s, espaces, virgules, points-virgules
+        df_uploaded = pd.read_csv(uploaded_file, sep=r'(/s|[\s,;])+', engine='python')
         
-        # 2. Nettoyage des guillemets superflus dans les valeurs et les noms de colonnes
-        df_uploaded = df_uploaded.apply(lambda col: col.astype(str).str.replace('"', '').str.replace("'", ""))
+        # 2. Nettoyage des guillemets et espaces résiduels
+        df_uploaded = df_uploaded.apply(lambda col: col.astype(str).str.replace('"', '').str.replace("'", "").str.strip())
         df_uploaded.columns = [col.replace('"', '').replace("'", "").strip() for col in df_uploaded.columns]
         
-        # 3. Conversion automatique des colonnes vers leurs types numériques (float/int)
+        # 3. Supprimer d'éventuelles colonnes vides générées par le regex
+        df_uploaded = df_uploaded.loc[:, ~df_uploaded.columns.str.contains('^Unnamed')]
+        
+        # 4. Conversion automatique vers des types numériques (int/float)
         df_uploaded = df_uploaded.apply(pd.to_numeric, errors='ignore')
         
         table_name = "dataset"
         
-        # 4. Injection propre dans DuckDB
+        # 5. Injection dans DuckDB
         conn.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM df_uploaded")
         
-        # Inspection dynamique pour l'agent LLM
+        # Inspection dynamique pour le prompt de l'agent
         schema_info = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
         cols_str = "\n".join([f"- {col[1]} ({col[2]})" for col in schema_info])
         
@@ -85,7 +91,7 @@ if uploaded_file is not None:
         st.sidebar.success(f"Fichier `{uploaded_file.name}` chargé ({len(df_uploaded)} lignes) !")
         st.sidebar.dataframe(df_uploaded.head(3), use_container_width=True)
     except Exception as e:
-        st.sidebar.error(f"Erreur lors du chargement du CSV : {e}")
+        st.sidebar.error(f"Erreur lors du chargement du fichier : {e}")
         st.stop()
 else:
     # Table d'exemple par défaut
