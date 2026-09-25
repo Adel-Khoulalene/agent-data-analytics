@@ -39,23 +39,87 @@ if not groq_api_key:
 # ------------------------------------------------------------------
 # 3. Sidebar : Test de connexion & File Uploader CSV
 # ------------------------------------------------------------------
+# ------------------------------------------------------------------
+# 3. Sidebar : Test de connexion, Exemples & File Uploader CSV
+# ------------------------------------------------------------------
 with st.sidebar:
     st.header("⚙️ Configuration & Données")
-    
+
     if st.button("Tester la connexion Groq", key="btn_test_groq"):
         try:
-            test_llm = ChatGroq(model="openai/gpt-oss-120b", groq_api_key=groq_api_key)
+            test_llm = ChatGroq(
+                model="openai/gpt-oss-120b", groq_api_key=groq_api_key
+            )
             res = test_llm.invoke("Dis 'Connexion réussie !'")
             st.success(res.content)
         except Exception as e:
             st.error(f"Erreur Groq : {e}")
 
     st.markdown("---")
-    st.subheader("📁 Importer des données")
+    st.subheader("📥 Fichiers d'exemple")
+
+    # Données d'exemple intégrées pour téléchargement direct
+    csv_dates_data = """Date;Ozone;Temperature;Vent
+2023-01-01;42;12.5;8.5
+2023-01-02;38;14.1;10.2
+2023-01-03;NA;11.8;7.1
+2023-01-04;55;NA;12.0
+2023-01-05;49;15.0;9.4"""
+
+    csv_qualite_air_data = """Date;Station;Ozone;Temperature;Vent;Humidite;Pression
+2023-01-01;Station_A;42.1;8.2;3.4;68;1012.4
+2023-01-01;Station_B;38.7;7.5;2.8;72;1013.1
+2023-01-01;Station_C;51.3;9.1;4.2;61;1011.8
+2023-01-02;Station_A;35.4;6.8;5.1;74;1010.6
+2023-01-02;Station_B;41.8;8.0;3.6;69;1011.2
+2023-01-02;Station_C;47.6;10.2;4.8;64;1010.1
+2023-01-03;Station_A;29.8;5.9;6.4;79;1008.9
+2023-01-03;Station_B;33.2;6.4;4.9;77;1009.5
+2023-01-03;Station_C;44.9;9.7;5.5;66;1008.2
+2023-01-04;Station_A;55.6;11.3;2.7;58;1014.3
+2023-01-04;Station_B;49.1;10.4;3.1;63;1013.7
+2023-01-04;Station_C;60.2;12.1;3.9;55;1014.8
+2023-01-05;Station_A;62.4;13.2;2.2;52;1016.1
+2023-01-05;Station_B;57.8;12.0;2.9;57;1015.4
+2023-01-05;Station_C;66.5;14.0;3.3;49;1016.8"""
+
+    col_dl1, col_dl2 = st.columns(2)
+    with col_dl1:
+        st.download_button(
+            label="📄 Dates CSV",
+            data=csv_dates_data,
+            file_name="donnees_test_dates.csv",
+            mime="text/csv",
+        )
+    with col_dl2:
+        st.download_button(
+            label="📄 Qualité Air",
+            data=csv_qualite_air_data,
+            file_name="donnees_qualite_air.txt",
+            mime="text/plain",
+        )
+
+    st.markdown("---")
+    st.subheader("📁 Importer vos données")
     uploaded_file = st.file_uploader(
-    "Téléversez un fichier (CSV, TXT, DATA)", 
-    type=["csv", "txt", "data", "log"]
+        "Téléversez un fichier (CSV, TXT, DATA)",
+        type=["csv", "txt", "data", "log"],
     )
+
+    st.markdown("---")
+    st.subheader("💡 Exemples de requêtes")
+
+    # Suggestions de requêtes cliquables
+    requetes_exemples = [
+        "Affiche un linechart de la distribution du Vent au cours des jours de l'année 2023",
+        "Quelle est la moyenne de l'Ozone et de la Température par Station ?",
+        "Affiche l'évolution de la Température par date et par Station",
+        "Donne les 5 jours avec la pression la plus élevée",
+    ]
+
+    for req in requetes_exemples:
+        if st.button(req, use_container_width=True):
+            st.session_state["prompt_automatique"] = req
 
 # ------------------------------------------------------------------
 # 4. Gestion de la Base de Données DuckDB & Schéma Dynamique
@@ -186,6 +250,8 @@ if uploaded_file is not None:
             df_uploaded.head(3),
             use_container_width=True
         )
+        
+        
 
     except Exception as e:
         st.sidebar.error(
@@ -403,6 +469,9 @@ agent = build_agent(groq_api_key, db_schema)
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+# Récupération d'une requête d'exemple cliquée depuis la sidebar
+prompt_auto = st.session_state.pop("prompt_automatique", None)
+
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.write(msg["content"])
@@ -411,12 +480,17 @@ for msg in st.session_state.messages:
         if "chart_path" in msg and msg["chart_path"]:
             st.image(msg["chart_path"])
 
-user_input = st.chat_input("Posez une question sur vos données (ex: Donnes-moi la répartition par catégorie)...")
+# Utilise le prompt automatique s'il existe, sinon attend la saisie utilisateur
+user_input = st.chat_input(
+    "Posez une question sur vos données..."
+) or prompt_auto
 
 if user_input:
     st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user"):
         st.write(user_input)
+
+    # ... [reste du code inchangé] ...
 
     with st.chat_message("assistant"):
         with st.spinner("Analyse et génération en cours via DuckDB + Groq..."):
