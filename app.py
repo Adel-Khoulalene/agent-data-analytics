@@ -1,6 +1,7 @@
 import os
 import datetime
 import json
+import uuid
 
 import streamlit as st
 import duckdb
