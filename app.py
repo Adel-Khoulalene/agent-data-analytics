@@ -266,8 +266,14 @@ def build_agent(api_key: str, schema_context: str):
     def execute_sql(state: SQLState):
         query = state["sql_query"]
         try:
-            res = conn.execute(query).fetchall()
-            return {"sql_result": str(res), "error": ""}
+            df_result = conn.execute(query).df()
+            return {
+                "sql_result": df_result.to_json(
+                orient="records",
+                date_format="iso"
+                ),
+                "error": ""
+            }
         except Exception as e:
             return {"sql_result": "", "error": str(e)}
 
@@ -284,70 +290,81 @@ def build_agent(api_key: str, schema_context: str):
             config_dict = parser.parse(response.content)
             config = ChartConfig(**config_dict)
             
-            raw_data = eval(sql_result)
-            df = pd.DataFrame(raw_data)
+        import json
 
-            # Vérification des colonnes demandées
-            if config.x_column in df.columns and config.y_column in df.columns:
-                df = df[[config.x_column, config.y_column]].copy()
-            else:
-                if len(df.columns) >= 2:
-                    df = df.iloc[:, :2].copy()
-                    df.columns = [config.x_column, config.y_column]
-                else:
-                    raise ValueError("Le résultat SQL ne contient pas assez de colonnes pour générer le graphique.")
+        # Récupération des données avec les noms de colonnes
+        df = pd.DataFrame(json.loads(sql_result))
 
-            # Nettoyage de l'axe X
-            df[config.x_column] = df[config.x_column].astype(str)
+        if config.x_column not in df.columns:
+            raise ValueError(f"Colonne X introuvable : {config.x_column}")
 
-            # Conversion explicite de l'axe Y en numérique
-            df[config.y_column] = pd.to_numeric(
+        if config.y_column not in df.columns:
+            raise ValueError(f"Colonne Y introuvable : {config.y_column}")
+
+        # Conversion des types
+        df[config.x_column] = pd.to_datetime(
+            df[config.x_column], errors="coerce"
+        )
+        df[config.y_column] = pd.to_numeric(
+            df[config.y_column], errors="coerce"
+        )
+
+        df = df.dropna(subset=[config.x_column, config.y_column])
+
+        plt.close("all")
+        fig, ax = plt.subplots(figsize=(12, 6))
+
+        # Détection de la colonne Station
+        station_col = next(
+            (col for col in df.columns
+             if col.lower() in ["station", "stations", "site"]),
+            None
+        )
+
+        if config.chart_type == "line" and station_col:
+            # Une courbe par station
+            for station, group in df.groupby(station_col):
+                group = group.sort_values(config.x_column)
+
+                ax.plot(
+                    group[config.x_column],
+                    group[config.y_column],
+                    marker="o",
+                    label=str(station)
+                )
+
+            ax.legend(title="Station")
+
+        elif config.chart_type == "line":
+            df = df.sort_values(config.x_column)
+            ax.plot(
+                df[config.x_column],
                 df[config.y_column],
-                errors="coerce"
+                marker="o"
             )
 
-            # Suppression des lignes invalides
-            df = df.dropna(subset=[config.y_column])
+        elif config.chart_type == "bar":
+            ax.bar(
+                df[config.x_column].astype(str),
+                df[config.y_column]
+            )
 
-            if df.empty:
-                raise ValueError(
-                    f"Aucune valeur numérique exploitable dans la colonne '{config.y_column}'."
-                )
+        elif config.chart_type == "scatter":
+            ax.scatter(
+                df[config.x_column],
+                df[config.y_column]
+            )
 
-            # Génération du graphique
-            plt.close("all")
+        ax.set_title(str(config.title))
+        ax.set_xlabel(config.x_column)
+        ax.set_ylabel(config.y_column)
 
-            fig, ax = plt.subplots(figsize=(10, 5))
+        fig.autofmt_xdate()
+        plt.tight_layout()
 
-            if config.chart_type == "bar":
-                ax.bar(
-                    df[config.x_column],
-                    df[config.y_column]
-                )
-
-            elif config.chart_type == "line":
-                ax.plot(
-                    df[config.x_column],
-                    df[config.y_column],
-                    marker="o"
-                )
-
-            elif config.chart_type == "scatter":
-                ax.scatter(
-                    df[config.x_column],
-                    df[config.y_column]
-                )
-
-            ax.set_title(str(config.title))
-            ax.set_xlabel(str(config.x_column))
-            ax.set_ylabel(str(config.y_column))
-
-            plt.xticks(rotation=45)
-            plt.tight_layout()
-
-            chart_path = "chart.png"
-            fig.savefig(chart_path, dpi=150, bbox_inches="tight")
-            plt.close(fig)
+        chart_path = "chart.png"
+        fig.savefig(chart_path, dpi=150, bbox_inches="tight")
+        plt.close(fig)
         except Exception as e:
             st.error(f"Erreur lors de la génération du graphique : {e}")
             chart_path = ""
