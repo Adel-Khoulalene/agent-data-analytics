@@ -74,7 +74,8 @@ pip install -r requirements.txt
 
 ```bash
 GROQ_API_KEY = "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"
-``
+```
+
 ### 5.Lancer l'application
 
 ```bash
