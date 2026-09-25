@@ -1,5 +1,6 @@
 import os
 import datetime
+import json
 
 import streamlit as st
 import duckdb
@@ -289,8 +290,6 @@ def build_agent(api_key: str, schema_context: str):
             response = llm.invoke(prompt)
             config_dict = parser.parse(response.content)
             config = ChartConfig(**config_dict)
-            
-        import json
 
         # Récupération des données avec les noms de colonnes
         df = pd.DataFrame(json.loads(sql_result))
