@@ -291,79 +291,79 @@ def build_agent(api_key: str, schema_context: str):
             config_dict = parser.parse(response.content)
             config = ChartConfig(**config_dict)
 
-        # Récupération des données avec les noms de colonnes
-        df = pd.DataFrame(json.loads(sql_result))
+            # Récupération des données avec les noms de colonnes
+            df = pd.DataFrame(json.loads(sql_result))
 
-        if config.x_column not in df.columns:
-            raise ValueError(f"Colonne X introuvable : {config.x_column}")
+            if config.x_column not in df.columns:
+                raise ValueError(f"Colonne X introuvable : {config.x_column}")
 
-        if config.y_column not in df.columns:
-            raise ValueError(f"Colonne Y introuvable : {config.y_column}")
+            if config.y_column not in df.columns:
+                raise ValueError(f"Colonne Y introuvable : {config.y_column}")
 
-        # Conversion des types
-        df[config.x_column] = pd.to_datetime(
-            df[config.x_column], errors="coerce"
-        )
-        df[config.y_column] = pd.to_numeric(
-            df[config.y_column], errors="coerce"
-        )
+            # Conversion des types
+            df[config.x_column] = pd.to_datetime(
+                df[config.x_column], errors="coerce"
+            )
+            df[config.y_column] = pd.to_numeric(
+                df[config.y_column], errors="coerce"
+            )
 
-        df = df.dropna(subset=[config.x_column, config.y_column])
+            df = df.dropna(subset=[config.x_column, config.y_column])
 
-        plt.close("all")
-        fig, ax = plt.subplots(figsize=(12, 6))
+            plt.close("all")
+            fig, ax = plt.subplots(figsize=(12, 6))
 
-        # Détection de la colonne Station
-        station_col = next(
-            (col for col in df.columns
-             if col.lower() in ["station", "stations", "site"]),
-            None
-        )
+            # Détection de la colonne Station
+            station_col = next(
+                (col for col in df.columns
+                 if col.lower() in ["station", "stations", "site"]),
+                None
+            )
 
-        if config.chart_type == "line" and station_col:
-            # Une courbe par station
-            for station, group in df.groupby(station_col):
-                group = group.sort_values(config.x_column)
+            if config.chart_type == "line" and station_col:
+                # Une courbe par station
+                for station, group in df.groupby(station_col):
+                    group = group.sort_values(config.x_column)
 
+                    ax.plot(
+                        group[config.x_column],
+                        group[config.y_column],
+                        marker="o",
+                        label=str(station)
+                    )
+
+                ax.legend(title="Station")
+
+            elif config.chart_type == "line":
+                df = df.sort_values(config.x_column)
                 ax.plot(
-                    group[config.x_column],
-                    group[config.y_column],
-                    marker="o",
-                    label=str(station)
+                    df[config.x_column],
+                    df[config.y_column],
+                    marker="o"
                 )
 
-            ax.legend(title="Station")
+            elif config.chart_type == "bar":
+                ax.bar(
+                    df[config.x_column].astype(str),
+                    df[config.y_column]
+                )
 
-        elif config.chart_type == "line":
-            df = df.sort_values(config.x_column)
-            ax.plot(
-                df[config.x_column],
-                df[config.y_column],
-                marker="o"
-            )
+            elif config.chart_type == "scatter":
+                ax.scatter(
+                    df[config.x_column],
+                    df[config.y_column]
+                )
 
-        elif config.chart_type == "bar":
-            ax.bar(
-                df[config.x_column].astype(str),
-                df[config.y_column]
-            )
+            ax.set_title(str(config.title))
+            ax.set_xlabel(config.x_column)
+            ax.set_ylabel(config.y_column)
 
-        elif config.chart_type == "scatter":
-            ax.scatter(
-                df[config.x_column],
-                df[config.y_column]
-            )
+            fig.autofmt_xdate()
+            plt.tight_layout()
 
-        ax.set_title(str(config.title))
-        ax.set_xlabel(config.x_column)
-        ax.set_ylabel(config.y_column)
-
-        fig.autofmt_xdate()
-        plt.tight_layout()
-
-        chart_path = "chart.png"
-        fig.savefig(chart_path, dpi=150, bbox_inches="tight")
-        plt.close(fig)
+            chart_path = "chart.png"
+            fig.savefig(chart_path, dpi=150, bbox_inches="tight")
+            plt.close(fig)
         except Exception as e:
             st.error(f"Erreur lors de la génération du graphique : {e}")
             chart_path = ""
