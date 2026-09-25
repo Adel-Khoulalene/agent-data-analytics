@@ -37,19 +37,15 @@ if not groq_api_key:
     st.stop()
 
 # ------------------------------------------------------------------
-# 3. Sidebar : Test de connexion & File Uploader CSV
 # ------------------------------------------------------------------
-# ------------------------------------------------------------------
-# 3. Sidebar : Test de connexion, Exemples & File Uploader CSV
+# 3. Sidebar : Configuration, Téléchargements & Requetes d'exemple
 # ------------------------------------------------------------------
 with st.sidebar:
     st.header("⚙️ Configuration & Données")
-
+    
     if st.button("Tester la connexion Groq", key="btn_test_groq"):
         try:
-            test_llm = ChatGroq(
-                model="openai/gpt-oss-120b", groq_api_key=groq_api_key
-            )
+            test_llm = ChatGroq(model="openai/gpt-oss-120b", groq_api_key=groq_api_key)
             res = test_llm.invoke("Dis 'Connexion réussie !'")
             st.success(res.content)
         except Exception as e:
@@ -58,15 +54,8 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("📥 Fichiers d'exemple")
 
-    # Données d'exemple intégrées pour téléchargement direct
-    csv_dates_data = """Date;Ozone;Temperature;Vent
-2023-01-01;42;12.5;8.5
-2023-01-02;38;14.1;10.2
-2023-01-03;NA;11.8;7.1
-2023-01-04;55;NA;12.0
-2023-01-05;49;15.0;9.4"""
-
-    csv_qualite_air_data = """Date;Station;Ozone;Temperature;Vent;Humidite;Pression
+    # Contenu complet des jeux de données d'exemple
+    qualite_air_data = """Date;Station;Ozone;Temperature;Vent;Humidite;Pression
 2023-01-01;Station_A;42.1;8.2;3.4;68;1012.4
 2023-01-01;Station_B;38.7;7.5;2.8;72;1013.1
 2023-01-01;Station_C;51.3;9.1;4.2;61;1011.8
@@ -81,41 +70,61 @@ with st.sidebar:
 2023-01-04;Station_C;60.2;12.1;3.9;55;1014.8
 2023-01-05;Station_A;62.4;13.2;2.2;52;1016.1
 2023-01-05;Station_B;57.8;12.0;2.9;57;1015.4
-2023-01-05;Station_C;66.5;14.0;3.3;49;1016.8"""
+2023-01-05;Station_C;66.5;14.0;3.3;49;1016.8
+2023-01-06;Station_A;48.3;9.4;4.7;65;1012.0
+2023-01-06;Station_B;45.6;8.8;3.8;68;1012.6
+2023-01-06;Station_C;53.7;10.1;4.4;60;1011.5
+2023-01-07;Station_A;31.7;6.1;5.8;76;1009.3
+2023-01-07;Station_B;36.9;7.2;4.6;73;1009.9
+2023-01-07;Station_C;40.5;8.4;5.2;70;1008.7
+2023-01-08;Station_A;44.2;8.9;3.2;71;1011.7
+2023-01-08;Station_B;50.6;9.6;2.5;66;1012.3
+2023-01-08;Station_C;58.1;11.5;3.7;62;1011.0
+2023-01-09;Station_A;52.9;10.7;3.0;63;1014.0
+2023-01-09;Station_B;47.3;9.2;3.4;67;1014.6
+2023-01-09;Station_C;63.8;12.8;2.6;56;1013.5
+2023-01-10;Station_A;39.5;7.7;4.1;70;1010.8
+2023-01-10;Station_B;43.8;8.3;3.7;68;1011.4
+2023-01-10;Station_C;49.7;9.8;4.5;64;1010.2"""
 
     col_dl1, col_dl2 = st.columns(2)
     with col_dl1:
         st.download_button(
-            label="📄 Dates CSV",
-            data=csv_dates_data,
-            file_name="donnees_test_dates.csv",
-            mime="text/csv",
+            label="📄 Qualité Air (.CSV)",
+            data=qualite_air_data,
+            file_name="donnees_qualite_air_2.csv",
+            mime="text/csv"
         )
     with col_dl2:
         st.download_button(
-            label="📄 Qualité Air",
-            data=csv_qualite_air_data,
-            file_name="donnees_qualite_air.txt",
-            mime="text/plain",
+            label="📄 Qualité Air (.TXT)",
+            data=qualite_air_data,
+            file_name="donnees_qualite_air_2.txt",
+            mime="text/plain"
         )
 
     st.markdown("---")
-    st.subheader("📁 Importer vos données")
+    st.subheader("📁 Importer des données")
     uploaded_file = st.file_uploader(
-        "Téléversez un fichier (CSV, TXT, DATA)",
-        type=["csv", "txt", "data", "log"],
+        "Téléversez un fichier (CSV, TXT, DATA)", 
+        type=["csv", "txt", "data", "log"]
     )
 
     st.markdown("---")
-    st.subheader("💡 Exemples de requêtes")
+    st.subheader("💡 Requêtes d'exemple")
 
-    # Suggestions de requêtes cliquables
-    requetes_exemples = [
-        "Affiche un linechart de la distribution du Vent au cours des jours de l'année 2023",
-        "Quelle est la moyenne de l'Ozone et de la Température par Station ?",
-        "Affiche l'évolution de la Température par date et par Station",
-        "Donne les 5 jours avec la pression la plus élevée",
-    ]
+    type_jeu = st.radio("Sélectionner la série de requêtes :", ["Fichier CSV", "Fichier TXT"])
+
+    if type_jeu == "Fichier CSV":
+        requetes_exemples = [
+            "Affiche l'évolution quotidienne de l'Ozone pour chaque station sur la période disponible, avec une courbe de couleur différente par station et une légende.",
+            "Compare, pour chaque station, la moyenne de l'Ozone et du Vent sur la période disponible, puis affiche les jours où l'Ozone dépasse 50 et où le vent moyen dépasse 3."
+        ]
+    else:
+        requetes_exemples = [
+            "Pour chaque station, affiche la température moyenne et l'humidité moyenne par jour, uniquement pour les jours où la moyenne d'Ozone dépasse 45, puis trie les résultats par date.",
+            "Compare les niveaux moyens d'Ozone entre les stations et identifie, pour chaque station, le jour où la pression est la plus élevée ; présente les résultats sous forme de tableau."
+        ]
 
     for req in requetes_exemples:
         if st.button(req, use_container_width=True):
@@ -469,7 +478,7 @@ agent = build_agent(groq_api_key, db_schema)
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Récupération d'une requête d'exemple cliquée depuis la sidebar
+# Interception du clic sur un exemple dans la sidebar
 prompt_auto = st.session_state.pop("prompt_automatique", None)
 
 for msg in st.session_state.messages:
@@ -480,17 +489,12 @@ for msg in st.session_state.messages:
         if "chart_path" in msg and msg["chart_path"]:
             st.image(msg["chart_path"])
 
-# Utilise le prompt automatique s'il existe, sinon attend la saisie utilisateur
-user_input = st.chat_input(
-    "Posez une question sur vos données..."
-) or prompt_auto
+user_input = st.chat_input("Posez une question sur vos données...") or prompt_auto
 
 if user_input:
     st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user"):
         st.write(user_input)
-
-    # ... [reste du code inchangé] ...
 
     with st.chat_message("assistant"):
         with st.spinner("Analyse et génération en cours via DuckDB + Groq..."):
