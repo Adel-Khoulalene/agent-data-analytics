@@ -436,14 +436,16 @@ def build_agent(api_key: str, schema_context: str):
             fig.autofmt_xdate()
             plt.tight_layout()
 
-            chart_path = "chart.png"
-            fig.savefig(chart_path, dpi=150, bbox_inches="tight")
+            # Génère un nom de fichier unique pour ne pas écraser les précédents
+            nom_unique = f"chart_{uuid.uuid4().hex[:8]}.png"
+            fig.savefig(nom_unique, dpi=150, bbox_inches="tight")
             plt.close(fig)
+
         except Exception as e:
             st.error(f"Erreur lors de la génération du graphique : {e}")
             chart_path = ""
             
-        return {"chart_config": str(config_dict), "chart_path": chart_path}
+        return {"chart_config": str(config_dict), "chart_path": nom_unique}
 
     def should_retry(state: SQLState):
         if not state.get("error"):
